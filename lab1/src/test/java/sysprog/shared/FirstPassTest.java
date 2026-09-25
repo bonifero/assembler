@@ -52,7 +52,8 @@ class FirstPassTest {
                     "000112 0D B4",
                     "000116 10 R1 R2",
                     "000118 15 B1",
-                    "00011C 18 C8"
+                    "00011C 18 C8",
+                    "END 000100"
             ), firstPass(Samples.DEFAULT_SAMPLE).firstPass);
         }
 
@@ -85,7 +86,7 @@ class FirstPassTest {
         void loadAddressFieldOverridesStart() {
             AssemblerRun run = firstPass(program("P START 100", "L1 RET", " END"), "ABC0");
 
-            assertEquals(List.of("P START 00ABC0", "00ABC0 28"), run.firstPass);
+            assertEquals(List.of("P START 00ABC0", "00ABC0 28", "END 00ABC0"), run.firstPass);
             assertEquals(List.of("L1 00ABC0"), run.symbolTable());
         }
 
@@ -177,7 +178,7 @@ class FirstPassTest {
         @Test
         @DisplayName("Неизвестная команда — ошибка")
         void rejectsUnknownCommand() {
-            error(program("P START 100", " MOV R1 R2", " END"));
+            assertError(program("P START 100", " MOV R1 R2", " END"), "Неизвестная команда: \"MOV\"");
         }
 
         @ParameterizedTest(name = "\"{0}\"")
@@ -188,11 +189,41 @@ class FirstPassTest {
         }
 
         @Test
+        @DisplayName("Метка с именем регистра — конкретная ошибка, а не общий формат")
+        void rejectsLabelNamedAsRegister() {
+            assertError(program("P START 100", "R1 RET", " END"), "Имя метки не должно совпадать с именем регистра: \"R1\"");
+        }
+
+        @Test
+        @DisplayName("Метка с именем команды перед командой с двумя операндами — конкретная ошибка")
+        void rejectsLabelNamedAsCommand() {
+            assertError(program("P START 100", "RET JMP B1 C1", " END"), "Имя метки не должно совпадать с именем команды: \"RET\"");
+        }
+
+        @Test
+        @DisplayName("Метка с именем директивы перед командой с двумя операндами — конкретная ошибка")
+        void rejectsLabelNamedAsDirective() {
+            assertError(program("P START 100", "WORD JMP B1 C1", " END"), "Имя метки не должно совпадать с именем директивы: \"WORD\"");
+        }
+
+        @Test
+        @DisplayName("Метка длиннее 10 символов — конкретная ошибка")
+        void rejectsTooLongLabel() {
+            assertError(program("P START 100", "ABCDEFGHIJK RET", " END"), "Длина метки не должна превышать 10 символов");
+        }
+
+        @Test
+        @DisplayName("Слишком много слов в строке — конкретная ошибка")
+        void rejectsTooManyWords() {
+            assertError(program("P START 100", "A B C D E", " END"), "Слишком много слов в строке");
+        }
+
+        @Test
         @DisplayName("Метки, команды и регистры не зависят от регистра букв")
         void isCaseInsensitive() {
             AssemblerRun run = firstPass(program("p start 100", "loop add r1 r2", " jmp LOOP", " end"));
 
-            assertEquals(List.of("P START 000100", "000100 10 R1 R2", "000102 05 LOOP"), run.firstPass);
+            assertEquals(List.of("P START 000100", "000100 10 R1 R2", "000102 05 LOOP", "END 000100"), run.firstPass);
             assertEquals(List.of("LOOP 000100"), run.symbolTable());
         }
     }
@@ -206,7 +237,7 @@ class FirstPassTest {
         void word() {
             AssemblerRun run = firstPass(program("P START 100", "A WORD 4096", "B WORD 0", "C WORD 16777215", "D RET", " END"));
 
-            assertEquals(List.of("P START 000100", "000100 WORD 001000", "000103 WORD 000000", "000106 WORD FFFFFF", "000109 28"), run.firstPass);
+            assertEquals(List.of("P START 000100", "000100 WORD 001000", "000103 WORD 000000", "000106 WORD FFFFFF", "000109 28", "END 000100"), run.firstPass);
         }
 
         @ParameterizedTest(name = "WORD {0}")
@@ -219,7 +250,7 @@ class FirstPassTest {
         @Test
         @DisplayName("BYTE с числом — 1 байт")
         void byteNumber() {
-            assertEquals(List.of("P START 000100", "000100 BYTE FF", "000101 28"),
+            assertEquals(List.of("P START 000100", "000100 BYTE FF", "000101 28", "END 000100"),
                     firstPass(program("P START 100", "A BYTE 255", " RET", " END")).firstPass);
         }
 
@@ -267,7 +298,7 @@ class FirstPassTest {
         void reserve() {
             AssemblerRun run = firstPass(program("P START 100", "A RESB 10", "B RESW 20", "C RET", " END"));
 
-            assertEquals(List.of("P START 000100", "000100 RESB 0A", "00010A RESW 14", "000146 28"), run.firstPass);
+            assertEquals(List.of("P START 000100", "000100 RESB 0A", "00010A RESW 14", "000146 28", "END 000100"), run.firstPass);
             assertEquals(List.of("A 000100", "B 00010A", "C 000146"), run.symbolTable());
         }
 
@@ -340,8 +371,14 @@ class FirstPassTest {
             assertDoesNotThrow(() -> firstPass(program("P START 100", " JMP LATER", "LATER RET", " END")));
         }
 
+        @Test
+        @DisplayName("Операнд, похожий на регистр/команду/директиву, трактуется как метка — первый проход проходит")
+        void operandResemblingReservedWordIsTreatedAsLabel() {
+            assertDoesNotThrow(() -> firstPass(program("P START 100", " JMP R1", " END")));
+        }
+
         @ParameterizedTest(name = "\"{0}\"")
-        @ValueSource(strings = {" JMP", " JMP A B", " JMP R1", " JMP 16777216", " JMP 1ABC"})
+        @ValueSource(strings = {" JMP", " JMP A B", " JMP 16777216", " JMP 1ABC"})
         @DisplayName("Команда длины 4 с неверными операндами — ошибка")
         void lengthFourInvalid(String badLine) {
             error(program("P START 100", badLine, " END"));

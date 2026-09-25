@@ -43,6 +43,7 @@ public class MainWindow extends JFrame {
     private final JTextArea firstPassArea = textArea(false);
     private final JTextArea symbolTableArea = textArea(false);
     private final JTextArea firstPassErrorsArea = errorArea();
+    private final JTextField entryAddressField = textField(false);
 
     private final JTextField headerField = textField(false);
     private final JTextArea objectCodeArea = textArea(false);
@@ -91,10 +92,14 @@ public class MainWindow extends JFrame {
     }
 
     private JPanel buildFirstPassPanel() {
-        return stack(
+        JPanel column = new JPanel(new BorderLayout(0, 5));
+        column.add(titled("Точка входа (адрес после END)", entryAddressField), BorderLayout.NORTH);
+        column.add(stack(
                 weighted(titled("Вспомогательная таблица", scroll(firstPassArea)), 3),
                 weighted(titled("Таблица символических имен", scroll(symbolTableArea)), 2),
-                weighted(titled("Ошибки первого прохода", scroll(firstPassErrorsArea)), 1));
+                weighted(titled("Ошибки первого прохода", scroll(firstPassErrorsArea)), 1)),
+                BorderLayout.CENTER);
+        return column;
     }
 
     private JPanel buildSecondPassPanel() {
@@ -133,6 +138,7 @@ public class MainWindow extends JFrame {
             symbolTableArea.setText(assembler.getSymbolTable().stream()
                     .map(s -> s.name() + " " + Numbers.hex(s.address(), 6))
                     .collect(Collectors.joining("\n")));
+            entryAddressField.setText(Numbers.hex(assembler.getEntryAddress(), 6));
         } catch (AssemblerException ex) {
             firstPassErrorsArea.setText("Ошибка: " + ex.getMessage());
         } catch (RuntimeException ex) {
@@ -172,6 +178,7 @@ public class MainWindow extends JFrame {
         firstPassArea.setText("");
         symbolTableArea.setText("");
         firstPassErrorsArea.setText("");
+        entryAddressField.setText("");
     }
 
     private void clearSecondPass() {

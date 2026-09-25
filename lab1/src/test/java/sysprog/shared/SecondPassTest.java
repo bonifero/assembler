@@ -111,6 +111,15 @@ class SecondPassTest {
     }
 
     @Test
+    @DisplayName("Операнд-метка совпадает с именем регистра/команды/директивы и не определена — ошибка второго прохода")
+    void operandResemblingReservedWordIsUndefined() {
+        AssemblerRun run = firstPass(program("P START 100", " JMP R1", " END"));
+
+        AssemblerException error = assertThrows(AssemblerException.class, run::secondPass);
+        assertTrue(error.getMessage().contains("Метка не найдена в ТСИ"));
+    }
+
+    @Test
     @DisplayName("Все примеры без ошибок проходят оба прохода")
     void correctSamplesAssemble() {
         for (Map.Entry<String, String> sample : Samples.ALL.entrySet()) {

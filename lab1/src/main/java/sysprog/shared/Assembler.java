@@ -58,6 +58,10 @@ public class Assembler {
         return Collections.unmodifiableList(symbolTable);
     }
 
+    public int getEntryAddress() {
+        return entryAddress;
+    }
+
     public void setCommands(List<CommandDto> table) {
         if (table.isEmpty())
             throw new AssemblerException("Таблица кодов операций пуста");
@@ -111,6 +115,7 @@ public class Assembler {
                 }
                 case "END" -> {
                     processEnd(line, text);
+                    intermediate.add("END " + hex(entryAddress, 6));
                     ended = true;
                 }
                 case "WORD" -> intermediate.add(processWord(line, text));
@@ -135,8 +140,11 @@ public class Assembler {
         List<String> objectCode = new ArrayList<>();
         objectCode.add(headerRecord(intermediate.get(0)));
 
-        for (List<String> words : intermediate.subList(1, intermediate.size()))
+        for (List<String> words : intermediate.subList(1, intermediate.size())) {
+            if (words.get(0).equalsIgnoreCase("END"))
+                continue;
             objectCode.add(textRecord(words));
+        }
 
         if (!isInsideProgram(entryAddress))
             throw new AssemblerException("Некорректный адрес входа в программу: " + hex(entryAddress, 6));
@@ -293,7 +301,7 @@ public class Assembler {
         requireOneOperand(line, text);
         String operand = line.firstOperand();
 
-        if (isLabel(operand))
+        if (looksLikeLabel(operand))
             return allocate(command.length(), opcode(command, ADDRESSING_LABEL) + " " + operand, text);
 
         Integer value = Numbers.parseDecimal(operand);
@@ -431,7 +439,43 @@ public class Assembler {
             }
         }
 
-        throw error("Неверный формат команды", String.join(" ", words));
+        throw malformedLineError(words);
+    }
+
+    private AssemblerException malformedLineError(List<String> words) {
+        String text = String.join(" ", words);
+        String first = words.get(0);
+
+        if (words.size() > 4)
+            return error("Слишком много слов в строке: ожидается [метка] команда [операнд1] [операнд2]", text);
+
+        if (words.size() >= 2) {
+            String reason = labelProblem(first);
+            if (reason != null)
+                return error(reason, text);
+        }
+
+        if (words.size() <= 3 && LABEL.matcher(first).matches() && !isCommand(first) && !isDirective(first))
+            return error("Неизвестная команда: \"" + first + "\"", text);
+
+        if (words.size() >= 2 && !LABEL.matcher(first).matches() && !isCommand(first) && !isDirective(first))
+            return error("Первое слово должно быть корректной меткой, командой или директивой: \"" + first + "\"", text);
+
+        return error("Неверный формат команды", text);
+    }
+
+    private String labelProblem(String word) {
+        if (!LABEL.matcher(word).matches())
+            return null;
+        if (word.length() > MAX_LABEL_LENGTH)
+            return "Длина метки не должна превышать " + MAX_LABEL_LENGTH + " символов: \"" + word + "\"";
+        if (Operands.isRegister(word))
+            return "Имя метки не должно совпадать с именем регистра: \"" + word + "\"";
+        if (isCommand(word))
+            return "Имя метки не должно совпадать с именем команды: \"" + word + "\"";
+        if (isDirective(word))
+            return "Имя метки не должно совпадать с именем директивы: \"" + word + "\"";
+        return null;
     }
 
     private void defineSymbol(String label, String text) {
@@ -467,6 +511,10 @@ public class Assembler {
                 && !Operands.isRegister(word)
                 && !isCommand(word)
                 && !isDirective(word);
+    }
+
+    private boolean looksLikeLabel(String word) {
+        return word.length() <= MAX_LABEL_LENGTH && LABEL.matcher(word).matches();
     }
 
     private static void requireOneOperand(CodeLine line, String text) {
