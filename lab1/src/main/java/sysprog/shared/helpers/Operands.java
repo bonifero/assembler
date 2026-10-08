@@ -6,7 +6,7 @@ import java.util.regex.Pattern;
 public final class Operands {
     private static final Pattern REGISTER = Pattern.compile("R(?:[1-9]|1[0-6])");
     private static final Pattern HEX_DIGITS = Pattern.compile("[0-9A-Fa-f]+");
-    private static final Pattern ASCII_WITHOUT_QUOTES = Pattern.compile("[\\x00-\\x7F&&[^\"]]+");
+    private static final Pattern ASCII = Pattern.compile("[\\x00-\\x7F]+");
 
     private Operands() {
     }
@@ -20,7 +20,7 @@ public final class Operands {
     }
 
     public static boolean isCharacterString(String operand) {
-        return isQuoted(operand, 'C') && ASCII_WITHOUT_QUOTES.matcher(content(operand)).matches();
+        return isQuoted(operand, 'C') && ASCII.matcher(content(operand)).matches();
     }
 
     public static boolean isHexString(String operand) {

@@ -93,12 +93,25 @@ class SecondPassTest {
     }
 
     @Test
+    @DisplayName("BYTE C\"...\" с кавычками внутри: кавычка кодируется как 22")
+    void characterStringWithQuotes() {
+        assertEquals("T 000100 08 2248656C6C6F2122", record(program("P START 100", "A BYTE C\"\"Hello!\"\"", " END"), 1));
+        assertEquals("T 000100 03 612262", record(program("P START 100", "A BYTE C\"a\"b\"", " END"), 1));
+    }
+
+    @Test
     @DisplayName("RESB/RESW: только длина резервируемой области")
     void reserve() {
         List<String> code = bothPasses(program("P START 100", "A RESB 10", "B RESW 2", " END")).objectCode;
 
         assertEquals("T 000100 0A", code.get(1));
         assertEquals("T 00010A 06", code.get(2));
+    }
+
+    @Test
+    @DisplayName("RESW 85 — максимальная длина записи FF")
+    void reserveMaxLength() {
+        assertEquals("T 000100 FF", record(program("P START 100", "A RESW 85", " END"), 1));
     }
 
     @Test

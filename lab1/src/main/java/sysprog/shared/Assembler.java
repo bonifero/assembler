@@ -4,12 +4,14 @@ import static sysprog.shared.helpers.Numbers.hex;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import sysprog.shared.dto.CommandDto;
 import sysprog.shared.exceptions.AssemblerException;
@@ -23,7 +25,7 @@ public class Assembler {
     private static final int MAX_ADDRESS = 0xFFFFFF;
     private static final int MAX_WORD = 0xFFFFFF;
     private static final int MAX_BYTE = 0xFF;
-    private static final int MAX_RESERVE_COUNT = 255;
+    private static final int MAX_RECORD_LENGTH = 0xFF;
     private static final int WORD_SIZE = 3;
 
     private static final int ADDRESSING_VALUE = 0;
@@ -208,17 +210,17 @@ public class Assembler {
         if (operand == null)
             return startAddress;
 
-        if (isLabel(operand)) {
-            SymbolicName symbol = findSymbol(operand);
-            if (symbol == null)
-                throw error("Метка точки входа не найдена в ТСИ", text);
+        SymbolicName symbol = isLabel(operand) ? findSymbol(operand) : null;
+        if (symbol != null)
             return symbol.address();
-        }
 
         Integer address = Numbers.parseHex(operand);
-        if (address == null)
-            throw error("Невозможно преобразовать операнд END в метку или 16-ричный адрес входа в программу", text);
-        return address;
+        if (address != null)
+            return address;
+
+        if (isLabel(operand))
+            throw error("Метка точки входа не найдена в ТСИ", text);
+        throw error("Невозможно преобразовать операнд END в метку или 16-ричный адрес входа в программу", text);
     }
 
     private boolean isInsideProgram(int address) {
@@ -237,11 +239,11 @@ public class Assembler {
         String operand = line.firstOperand();
 
         if (Operands.isCharacterString(operand))
-            return allocate(Operands.content(operand).length(), "BYTE C" + operand.substring(1), text);
+            return allocateString(Operands.content(operand).length(), "BYTE C" + operand.substring(1), text);
 
         if (Operands.isHexString(operand)) {
             String digits = Operands.content(operand).toUpperCase();
-            return allocate(digits.length() / 2, "BYTE X\"" + digits + "\"", text);
+            return allocateString(digits.length() / 2, "BYTE X\"" + digits + "\"", text);
         }
 
         if (Numbers.parseDecimal(operand) == null)
@@ -253,10 +255,17 @@ public class Assembler {
 
     private String processReserve(CodeLine line, String text) {
         requireOneOperand(line, text);
-        int count = parseDecimal(line.firstOperand(), 1, MAX_RESERVE_COUNT, text);
-        int size = line.command().equals("RESW") ? count * WORD_SIZE : count;
+        boolean words = line.command().equals("RESW");
+        int count = parseDecimal(line.firstOperand(), 1, words ? MAX_RECORD_LENGTH / WORD_SIZE : MAX_RECORD_LENGTH, text);
+        int size = words ? count * WORD_SIZE : count;
 
         return allocate(size, line.command() + " " + hex(count, 2), text);
+    }
+
+    private String allocateString(int size, String body, String text) {
+        if (size > MAX_RECORD_LENGTH)
+            throw error("Длина строки не должна превышать " + MAX_RECORD_LENGTH + " байт (сейчас " + size + ")", text);
+        return allocate(size, body, text);
     }
 
     private String processCommand(CodeLine line, String text) {
@@ -445,23 +454,67 @@ public class Assembler {
     private AssemblerException malformedLineError(List<String> words) {
         String text = String.join(" ", words);
         String first = words.get(0);
+        String second = words.size() > 1 ? words.get(1) : null;
 
         if (words.size() > 4)
             return error("Слишком много слов в строке: ожидается [метка] команда [операнд1] [операнд2]", text);
 
-        if (words.size() >= 2) {
+        if (second != null) {
             String reason = labelProblem(first);
             if (reason != null)
                 return error(reason, text);
         }
 
-        if (words.size() <= 3 && LABEL.matcher(first).matches() && !isCommand(first) && !isDirective(first))
-            return error("Неизвестная команда: \"" + first + "\"", text);
+        if (isCommandOrDirective(first))
+            return error("Неверное количество операндов для " + first.toUpperCase(), text);
 
-        if (words.size() >= 2 && !LABEL.matcher(first).matches() && !isCommand(first) && !isDirective(first))
-            return error("Первое слово должно быть корректной меткой, командой или директивой: \"" + first + "\"", text);
+        if (second != null && isCommandOrDirective(second)) {
+            if (isLabel(first))
+                return error("Неверное количество операндов для " + second.toUpperCase(), text);
+            return error("Некорректная метка \"" + first + "\": метка должна начинаться с латинской буквы"
+                    + " и состоять из латинских букв, цифр и _", text);
+        }
 
-        return error("Неверный формат команды", text);
+        if (second != null && isLabel(first)) {
+            String command = words.subList(2, words.size()).stream()
+                    .filter(this::isCommandOrDirective).findFirst().orElse(null);
+            if (command != null)
+                return error("Лишнее слово \"" + second + "\" между меткой и командой " + command.toUpperCase(), text);
+            if (!looksLikeOperand(second))
+                return unknownCommandError(second, text);
+        }
+
+        return unknownCommandError(first, text);
+    }
+
+    private AssemblerException unknownCommandError(String word, String text) {
+        if (LABEL.matcher(word).matches())
+            return error("Неизвестная команда: \"" + word + "\"", text);
+
+        String message = "Неизвестная команда: \"" + word + "\" — имя команды должно начинаться с латинской буквы"
+                + " и состоять из латинских букв и цифр";
+
+        String upper = word.toUpperCase();
+        String known = Stream.concat(commands.stream().map(Command::name), DIRECTIVES.stream())
+                .map(String::toUpperCase)
+                .filter(name -> upper.length() > name.length() && upper.endsWith(name))
+                .max(Comparator.comparingInt(String::length))
+                .orElse(null);
+        if (known != null)
+            message += ". Лишние символы \"" + word.substring(0, word.length() - known.length()) + "\" перед " + known;
+
+        return error(message, text);
+    }
+
+    private boolean isCommandOrDirective(String word) {
+        return isCommand(word) || isDirective(word);
+    }
+
+    private static boolean looksLikeOperand(String word) {
+        return LABEL.matcher(word).matches()
+                || Numbers.parseDecimal(word) != null
+                || Operands.isCharacterString(word)
+                || Operands.isHexString(word);
     }
 
     private String labelProblem(String word) {

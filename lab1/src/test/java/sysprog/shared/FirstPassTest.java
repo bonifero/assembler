@@ -82,6 +82,19 @@ class FirstPassTest {
         }
 
         @Test
+        @DisplayName("Ведущие нули в адресе допустимы (как в примере из задания: START 00001000)")
+        void leadingZerosInAddress() {
+            assertEquals("P START 001000", line(program("P START 00001000", " RET", " END"), 0));
+            assertEquals("P START 001000", firstPass(program("P START 100", " RET", " END"), "00001000").firstPass.get(0));
+        }
+
+        @Test
+        @DisplayName("Длинное число с ведущими нулями, но вне диапазона — ошибка диапазона")
+        void longAddressOutOfRange() {
+            assertError(program("P START 00000000001000000", " RET", " END"), "выходит за границы памяти");
+        }
+
+        @Test
         @DisplayName("Поле «Адрес загрузки» заменяет операнд START и сдвигает все адреса")
         void loadAddressFieldOverridesStart() {
             AssemblerRun run = firstPass(program("P START 100", "L1 RET", " END"), "ABC0");
@@ -219,6 +232,39 @@ class FirstPassTest {
         }
 
         @Test
+        @DisplayName("Цифры, приклеенные к команде, — неизвестная команда с подсказкой")
+        void digitsGluedToCommand() {
+            assertError(program("P START 100", " 000JMP L1", " END"),
+                    "Неизвестная команда: \"000JMP\" — имя команды должно начинаться с латинской буквы");
+            assertError(program("P START 100", " 000JMP L1", " END"), "Лишние символы \"000\" перед JMP");
+        }
+
+        @Test
+        @DisplayName("Цифры, приклеенные к команде после метки, — ошибка указывает на команду, а не на метку")
+        void digitsGluedToCommandAfterLabel() {
+            assertError(program("P START 100", "L2 000JMP L1", " END"), "Неизвестная команда: \"000JMP\"");
+        }
+
+        @Test
+        @DisplayName("Число вместо метки перед командой — некорректная метка")
+        void numberInsteadOfLabel() {
+            assertError(program("P START 100", " 000 JMP L1", " END"),
+                    "Некорректная метка \"000\": метка должна начинаться с латинской буквы");
+        }
+
+        @Test
+        @DisplayName("Число между меткой и командой — лишнее слово")
+        void numberBetweenLabelAndCommand() {
+            assertError(program("P START 100", "L2 000 JMP L1", " END"), "Лишнее слово \"000\" между меткой и командой JMP");
+        }
+
+        @Test
+        @DisplayName("Директива без операнда после метки — неверное количество операндов")
+        void directiveWithoutOperandAfterLabel() {
+            assertError(program("P START 100", "A WORD", " END"), "Неверное количество операндов для WORD");
+        }
+
+        @Test
         @DisplayName("Метки, команды и регистры не зависят от регистра букв")
         void isCaseInsensitive() {
             AssemblerRun run = firstPass(program("p start 100", "loop add r1 r2", " jmp LOOP", " end"));
@@ -238,6 +284,13 @@ class FirstPassTest {
             AssemblerRun run = firstPass(program("P START 100", "A WORD 4096", "B WORD 0", "C WORD 16777215", "D RET", " END"));
 
             assertEquals(List.of("P START 000100", "000100 WORD 001000", "000103 WORD 000000", "000106 WORD FFFFFF", "000109 28", "END 000100"), run.firstPass);
+        }
+
+        @Test
+        @DisplayName("Ведущие нули в десятичных числах допустимы")
+        void leadingZerosInDecimal() {
+            assertEquals("000100 WORD 000028", line(program("P START 100", "A WORD 0000000040", " RET", " END"), 1));
+            assertEquals("000100 18 C8", line(program("P START 100", " INT 0000200", " END"), 1));
         }
 
         @ParameterizedTest(name = "WORD {0}")
@@ -266,6 +319,15 @@ class FirstPassTest {
             AssemblerRun run = firstPass(program("P START 100", "A BYTE C\"Hi there\"", "B RET", " END"));
 
             assertEquals(List.of("A 000100", "B 000108"), run.symbolTable());
+        }
+
+        @Test
+        @DisplayName("BYTE C\"...\" с кавычками внутри — кавычки считаются символами строки")
+        void byteCharacterStringWithQuotes() {
+            AssemblerRun run = firstPass(program("P START 100", "A BYTE C\"\"Hello!\"\"", "B BYTE C\"He\"llo\"", "C RET", " END"));
+
+            assertEquals("000100 BYTE C\"\"Hello!\"\"", run.firstPass.get(1));
+            assertEquals(List.of("A 000100", "B 000108", "C 00010E"), run.symbolTable());
         }
 
         @Test
@@ -308,6 +370,21 @@ class FirstPassTest {
         void reserveOutOfRange(String value) {
             error(program("P START 100", "A RESB " + value, " END"));
             error(program("P START 100", "A RESW " + value, " END"));
+        }
+
+        @Test
+        @DisplayName("RESW: не больше 85 слов, чтобы длина записи (3 * N) уместилась в байт")
+        void reserveWordsLimit() {
+            assertEquals("000100 RESW 55", line(program("P START 100", "A RESW 85", " RET", " END"), 1));
+            assertError(program("P START 100", "A RESW 86", " RET", " END"), "(1-85)");
+        }
+
+        @Test
+        @DisplayName("BYTE: строка не длиннее 255 байт")
+        void byteStringLimit() {
+            assertDoesNotThrow(() -> firstPass(program("P START 100", "A BYTE C\"" + "a".repeat(255) + "\"", " RET", " END")));
+            assertError(program("P START 100", "A BYTE C\"" + "a".repeat(256) + "\"", " RET", " END"), "не должна превышать 255 байт");
+            assertError(program("P START 100", "A BYTE X\"" + "AB".repeat(256) + "\"", " RET", " END"), "не должна превышать 255 байт");
         }
 
         @ParameterizedTest(name = "\"{0}\"")
@@ -414,6 +491,22 @@ class FirstPassTest {
         }
 
         @Test
+        @DisplayName("END с 16-ричным адресом, похожим на метку, которой нет в ТСИ")
+        void hexAddressLookingLikeLabel() {
+            AssemblerRun run = firstPass(program("P START A0", " RET", " RET", " END A1")).secondPass();
+
+            assertEquals("E 0000A1", run.objectCode.get(run.objectCode.size() - 1));
+        }
+
+        @Test
+        @DisplayName("Метка в END важнее совпадающего 16-ричного адреса")
+        void labelWinsOverHexAddress() {
+            AssemblerRun run = firstPass(program("P START A0", " RET", "A0 RET", " END A0")).secondPass();
+
+            assertEquals("E 0000A1", run.objectCode.get(run.objectCode.size() - 1));
+        }
+
+        @Test
         @DisplayName("Неизвестная метка в END — ошибка")
         void unknownLabel() {
             assertError(program("P START 100", " RET", " END NOWHERE"), "Метка точки входа не найдена");
@@ -446,7 +539,7 @@ class FirstPassTest {
         @Test
         @DisplayName("Переполнение при резервировании памяти")
         void overflowOnReserve() {
-            assertError(program("P START FFFF00", "A RESW 255", " END"), "переполнение");
+            assertError(program("P START FFFF00", "A RESB 255", "B RESW 1", " END"), "переполнение");
         }
     }
 
