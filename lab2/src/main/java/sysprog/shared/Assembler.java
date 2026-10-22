@@ -53,6 +53,7 @@ public class Assembler {
 
     private final List<SymbolicName> symbolTable = new ArrayList<>();
     private final List<Integer> relocationTable = new ArrayList<>();
+    private AddressingMode addressingMode = AddressingMode.MIXED;
     private int entryAddress;
     private int locationCounter;
 
@@ -70,6 +71,14 @@ public class Assembler {
 
     public int getEntryAddress() {
         return entryAddress;
+    }
+
+    public AddressingMode getAddressingMode() {
+        return addressingMode;
+    }
+
+    public void setAddressingMode(AddressingMode addressingMode) {
+        this.addressingMode = addressingMode;
     }
 
     public void setCommands(List<CommandDto> table) {
@@ -294,17 +303,29 @@ public class Assembler {
         if (Operands.isRelative(operand)) {
             if (!looksLikeLabel(Operands.relativeTarget(operand)))
                 throw error("В квадратных скобках относительной адресации ожидается метка", text);
+            requireAddressingAllowed(ADDRESSING_RELATIVE, text);
             return allocate(command.length(), opcode(command, ADDRESSING_RELATIVE) + " " + operand, text);
         }
 
-        if (looksLikeLabel(operand))
+        if (looksLikeLabel(operand)) {
+            requireAddressingAllowed(ADDRESSING_DIRECT, text);
             return allocate(command.length(), opcode(command, ADDRESSING_DIRECT) + " " + operand, text);
+        }
 
         Integer value = Numbers.parseDecimal(operand);
         if (value == null || value > MAX_WORD)
             throw error("Недопустимое значение операнда", text);
 
         return allocate(command.length(), opcode(command, ADDRESSING_VALUE) + " " + hex(value, 6), text);
+    }
+
+    private void requireAddressingAllowed(int addressing, String text) {
+        if (addressing == ADDRESSING_DIRECT && !addressingMode.isDirectAllowed())
+            throw error("Прямая адресация запрещена в режиме «" + addressingMode + "»:"
+                    + " операнд-метку нужно записать в квадратных скобках [метка]", text);
+        if (addressing == ADDRESSING_RELATIVE && !addressingMode.isRelativeAllowed())
+            throw error("Относительная адресация [метка] запрещена в режиме «" + addressingMode + "»:"
+                    + " операнд-метку нужно записать без квадратных скобок", text);
     }
 
     private static String opcode(Command command, int addressing) {
@@ -380,6 +401,7 @@ public class Assembler {
         if (command == null)
             throw error("Команда с таким кодом не найдена в ТКО", text);
 
+        requireAddressingAllowed(opcode & 0b11, text);
         String operandCode = switch (opcode & 0b11) {
             case ADDRESSING_VALUE -> encodeValueOperands(operands, text);
             case ADDRESSING_DIRECT -> encodeDirectOperand(address, operands, text);

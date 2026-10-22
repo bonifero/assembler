@@ -25,6 +25,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.text.JTextComponent;
 
+import sysprog.shared.AddressingMode;
 import sysprog.shared.Assembler;
 import sysprog.shared.dto.CommandDto;
 import sysprog.shared.exceptions.AssemblerException;
@@ -51,6 +52,7 @@ public class MainWindow extends JFrame {
 
     private final JButton firstPassButton = new JButton("Первый проход");
     private final JButton secondPassButton = new JButton("Второй проход");
+    private final JComboBox<AddressingMode> addressingModeComboBox = new JComboBox<>(AddressingMode.values());
     private final JComboBox<String> samplesComboBox = new JComboBox<>(Samples.ALL.keySet().toArray(new String[0]));
 
     public MainWindow() {
@@ -74,6 +76,8 @@ public class MainWindow extends JFrame {
         firstPassButton.addActionListener(e -> runFirstPass());
         secondPassButton.addActionListener(e -> runSecondPass());
         samplesComboBox.addActionListener(e -> loadSelectedSample());
+        addressingModeComboBox.setSelectedItem(assembler.getAddressingMode());
+        addressingModeComboBox.addActionListener(e -> changeAddressingMode());
         secondPassButton.setEnabled(false);
 
         setSize(1400, 850);
@@ -116,6 +120,9 @@ public class MainWindow extends JFrame {
         buttons.add(Box.createHorizontalStrut(10));
         buttons.add(secondPassButton);
         buttons.add(Box.createHorizontalGlue());
+        buttons.add(new JLabel("Режим адресации: "));
+        buttons.add(addressingModeComboBox);
+        buttons.add(Box.createHorizontalStrut(20));
         buttons.add(new JLabel("Выбор примера: "));
         buttons.add(samplesComboBox);
         return buttons;
@@ -168,6 +175,13 @@ public class MainWindow extends JFrame {
         if (sample == null) return;
 
         sourceCodeArea.setText(sample);
+        clearFirstPass();
+        clearSecondPass();
+        secondPassButton.setEnabled(false);
+    }
+
+    private void changeAddressingMode() {
+        assembler.setAddressingMode((AddressingMode) addressingModeComboBox.getSelectedItem());
         clearFirstPass();
         clearSecondPass();
         secondPassButton.setEnabled(false);
