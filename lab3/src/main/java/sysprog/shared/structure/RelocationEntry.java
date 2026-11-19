@@ -1,4 +1,4 @@
 package sysprog.shared.structure;
 
-public record RelocationEntry(int address, String externalReference) {
+public record RelocationEntry(int address, String externalReference, String section) {
 }

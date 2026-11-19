@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import javax.swing.BorderFactory;
 import javax.swing.Box;
@@ -106,10 +107,11 @@ public class MainWindow extends JFrame {
 
     private JPanel buildFirstPassPanel() {
         JPanel column = new JPanel(new BorderLayout(0, 5));
-        column.add(titled("Точка входа (адрес после END)", entryAddressField), BorderLayout.NORTH);
+        column.add(titled("Точка входа (адрес после END; при нескольких секциях — для каждой)", entryAddressField),
+                BorderLayout.NORTH);
         column.add(stack(
                 weighted(titled("Вспомогательная таблица", scroll(firstPassArea)), 3),
-                weighted(titled("Таблица символических имен (имя, адрес, внешнее имя 1/0)", scroll(symbolTableArea)), 2),
+                weighted(titled("Таблица символических имен (имя, адрес, внешнее имя 1/0, секция)", scroll(symbolTableArea)), 2),
                 weighted(titled("Ошибки первого прохода", scroll(firstPassErrorsArea)), 1)),
                 BorderLayout.CENTER);
         return column;
@@ -117,17 +119,14 @@ public class MainWindow extends JFrame {
 
     private JPanel buildSecondPassPanel() {
         JPanel column = new JPanel(new BorderLayout(0, 5));
-        column.add(titled("Заголовок объектного модуля", headerField), BorderLayout.NORTH);
-        JPanel tables = new JPanel(new GridLayout(1, 2, 5, 0));
-        tables.add(titled("Таблица настройки (адрес, внешняя ссылка)", scroll(relocationTableArea)));
-        tables.add(titled("Внешние имена (имя, адрес)", scroll(externalNamesArea)));
-
+        column.add(titled("Заголовок объектного модуля (по одному на секцию)", headerField), BorderLayout.NORTH);
         JPanel saveRow = new JPanel();
         saveRow.add(saveButton);
 
         column.add(stack(
-                weighted(tables, 2),
-                weighted(titled("Внешние ссылки", scroll(externalReferencesArea)), 1),
+                weighted(titled("Внешние имена (ВИ): имя, адрес, [секция]", scroll(externalNamesArea)), 2),
+                weighted(titled("Внешние ссылки (ВС): имя, [секция]", scroll(externalReferencesArea)), 1),
+                weighted(titled("Таблица настройки: адрес команды, внешняя ссылка, [секция]", scroll(relocationTableArea)), 2),
                 weighted(titled("Двоичный код", scroll(objectCodeArea)), 4),
                 weighted(titled("Ошибки второго прохода", scroll(secondPassErrorsArea)), 1)),
                 BorderLayout.CENTER);
@@ -161,9 +160,13 @@ public class MainWindow extends JFrame {
 
             firstPassArea.setText(String.join("\n", firstPassCode).strip());
             symbolTableArea.setText(assembler.getSymbolTable().stream()
-                    .map(s -> s.name() + " " + Numbers.hex(s.address(), 6) + " " + (s.external() ? 1 : 0))
+                    .map(s -> s.name() + " " + Numbers.hex(s.address(), 6) + " " + (s.external() ? 1 : 0) + " " + s.section())
                     .collect(Collectors.joining("\n")));
-            entryAddressField.setText(Numbers.hex(assembler.getEntryAddress(), 6));
+            entryAddressField.setText(hasSeveralSections()
+                    ? assembler.getSections().stream()
+                            .map(s -> s.name() + " " + Numbers.hex(s.entryAddress(), 6))
+                            .collect(Collectors.joining("; "))
+                    : Numbers.hex(assembler.getEntryAddress(), 6));
         } catch (AssemblerException ex) {
             firstPassErrorsArea.setText("Ошибка: " + ex.getMessage());
         } catch (RuntimeException ex) {
@@ -180,15 +183,21 @@ public class MainWindow extends JFrame {
         try {
             List<String> code = assembler.secondPass(Parser.parseCode(firstPassArea.getText()));
 
-            headerField.setText(code.get(0));
+            boolean several = hasSeveralSections();
+            headerField.setText(code.stream().filter(record -> record.startsWith("H ")).collect(Collectors.joining("   ")));
             relocationTableArea.setText(assembler.getRelocationTable().stream()
                     .map(entry -> Numbers.hex(entry.address(), 6)
-                            + (entry.externalReference() == null ? "" : " " + entry.externalReference()))
+                            + (entry.externalReference() == null ? "" : " " + entry.externalReference())
+                            + (several ? " [" + entry.section() + "]" : ""))
                     .collect(Collectors.joining("\n")));
             externalNamesArea.setText(assembler.getExternalNames().stream()
-                    .map(s -> s.name() + " " + Numbers.hex(s.address(), 6))
+                    .map(s -> s.name() + " " + Numbers.hex(s.address(), 6) + (several ? " [" + s.section() + "]" : ""))
                     .collect(Collectors.joining("\n")));
-            externalReferencesArea.setText(String.join("\n", assembler.getExternalReferences()));
+            List<String> references = assembler.getExternalReferences();
+            List<String> referenceSections = assembler.getExternalReferenceSections();
+            externalReferencesArea.setText(IntStream.range(0, references.size())
+                    .mapToObj(i -> references.get(i) + (several ? " [" + referenceSections.get(i) + "]" : ""))
+                    .collect(Collectors.joining("\n")));
             objectCodeArea.setText(String.join("\n", code));
             objectCode = code;
             saveButton.setEnabled(true);
@@ -218,6 +227,10 @@ public class MainWindow extends JFrame {
         } catch (AssemblerException ex) {
             secondPassErrorsArea.setText("Ошибка: " + ex.getMessage());
         }
+    }
+
+    private boolean hasSeveralSections() {
+        return assembler.getSections().size() > 1;
     }
 
     private String headerProgramName() {

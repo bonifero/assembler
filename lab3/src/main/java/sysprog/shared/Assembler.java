@@ -21,6 +21,7 @@ import sysprog.shared.helpers.Operands;
 import sysprog.shared.structure.CodeLine;
 import sysprog.shared.structure.Command;
 import sysprog.shared.structure.RelocationEntry;
+import sysprog.shared.structure.Section;
 import sysprog.shared.structure.SymbolicName;
 
 public class Assembler {
@@ -39,7 +40,7 @@ public class Assembler {
 
     private static final int MAX_LABEL_LENGTH = 10;
     private static final Pattern LABEL = Pattern.compile("[A-Za-z][A-Za-z0-9_]*");
-    private static final List<String> DIRECTIVES = List.of("START", "END", "WORD", "BYTE", "RESB", "RESW", "EXTDEF", "EXTREF");
+    private static final List<String> DIRECTIVES = List.of("START", "END", "WORD", "BYTE", "RESB", "RESW", "EXTDEF", "EXTREF", "CSECT");
     private static final List<String> EXTERNAL_DIRECTIVES = List.of("EXTDEF", "EXTREF");
 
     private List<Command> commands = List.of(
@@ -55,14 +56,28 @@ public class Assembler {
             new Command("RET", 0x0A, 1));
 
     private final List<SymbolicName> symbolTable = new ArrayList<>();
+    // EXTDEF и EXTREF текущей управляющей секции
     private final List<String> declaredExternalNames = new ArrayList<>();
     private final List<String> declaredExternalReferences = new ArrayList<>();
+    // EXTDEF всех секций: одно внешнее имя может экспортировать только одна секция
+    private final List<String> exportedNames = new ArrayList<>();
+    private final List<Section> sections = new ArrayList<>();
     private final List<SymbolicName> externalNames = new ArrayList<>();
     private final List<String> externalReferences = new ArrayList<>();
+    private final List<String> externalReferenceSections = new ArrayList<>();
     private final List<RelocationEntry> relocationTable = new ArrayList<>();
     private AddressingMode addressingMode = AddressingMode.MIXED;
+    private String currentSection = "";
+    private boolean bodyStarted;
     private int entryAddress;
     private int locationCounter;
+
+    // Начала записей текущей секции в общих таблицах второго прохода
+    private Section secondPassSection;
+    private int sectionNamesFrom;
+    private int sectionReferencesFrom;
+    private int sectionRelocationsFrom;
+    private List<String> sectionTextRecords = new ArrayList<>();
 
     public List<Command> getCommands() {
         return commands;
@@ -82,6 +97,15 @@ public class Assembler {
 
     public List<String> getExternalReferences() {
         return Collections.unmodifiableList(externalReferences);
+    }
+
+    // Секция каждой внешней ссылки, в том же порядке, что и getExternalReferences()
+    public List<String> getExternalReferenceSections() {
+        return Collections.unmodifiableList(externalReferenceSections);
+    }
+
+    public List<Section> getSections() {
+        return Collections.unmodifiableList(sections);
     }
 
     public int getEntryAddress() {
@@ -114,14 +138,17 @@ public class Assembler {
         symbolTable.clear();
         declaredExternalNames.clear();
         declaredExternalReferences.clear();
+        exportedNames.clear();
+        sections.clear();
         clearSecondPassTables();
+        currentSection = "";
+        bodyStarted = false;
         entryAddress = START_ADDRESS;
         locationCounter = START_ADDRESS;
 
         List<String> intermediate = new ArrayList<>();
         boolean started = false;
         boolean ended = false;
-        boolean bodyStarted = false;
 
         for (List<String> words : source) {
             String text = String.join(" ", words);
@@ -135,12 +162,13 @@ public class Assembler {
                 throw error("Программа должна начинаться с директивы START", text);
 
             boolean externalDeclaration = EXTERNAL_DIRECTIVES.contains(line.command());
-            if (started && line.label() != null && !externalDeclaration)
+            boolean sectionStart = line.command().equals("CSECT");
+            if (started && line.label() != null && !externalDeclaration && !sectionStart)
                 defineSymbol(line.label(), text);
 
             if (externalDeclaration && bodyStarted)
-                throw error("Директива " + line.command() + " должна стоять сразу после START,"
-                        + " до первой команды или директивы данных", text);
+                throw error("Директива " + line.command() + " должна стоять сразу после START или CSECT,"
+                        + " до первой команды или директивы данных секции", text);
             if (started && !externalDeclaration)
                 bodyStarted = true;
 
@@ -151,8 +179,14 @@ public class Assembler {
                     intermediate.add(processStart(line, text));
                     started = true;
                 }
+                case "CSECT" -> {
+                    finishSection(line, text);
+                    intermediate.add(startSection(line, text));
+                }
                 case "END" -> {
-                    processEnd(line, text);
+                    if (line.label() != null)
+                        throw error("Перед директивой END не должно быть метки: она указывала бы за пределы программы", text);
+                    finishSection(line, text);
                     intermediate.add("END " + hex(entryAddress, 6));
                     ended = true;
                 }
@@ -169,11 +203,6 @@ public class Assembler {
         if (!ended)
             throw new AssemblerException("Не найдена директива END (точка входа в программу).");
 
-        for (String name : declaredExternalNames)
-            if (findSymbol(name) == null)
-                throw new AssemblerException("Внешнее имя " + name + ", объявленное в EXTDEF, не определено в программе:"
-                        + " ни одна команда или директива данных не помечена этой меткой");
-
         return intermediate;
     }
 
@@ -183,31 +212,32 @@ public class Assembler {
 
         clearSecondPassTables();
 
-        List<String> textRecords = new ArrayList<>();
+        // Каждая управляющая секция даёт свой объектный модуль: H, D, R, M, T, E
+        List<String> objectCode = new ArrayList<>();
+        int sectionIndex = 0;
+        beginSecondPassSection(sectionIndex++, intermediate.get(0));
+
         for (List<String> words : intermediate.subList(1, intermediate.size())) {
+            if (isSectionStart(words)) {
+                appendSectionRecords(objectCode);
+                beginSecondPassSection(sectionIndex++, words);
+                continue;
+            }
+
             switch (words.get(0).toUpperCase()) {
                 case "END" -> {
                 }
                 case "EXTDEF" -> addExternalNames(words);
                 case "EXTREF" -> addExternalReferences(words);
-                default -> textRecords.add(textRecord(words));
+                default -> sectionTextRecords.add(textRecord(words));
             }
         }
 
-        if (!isInsideProgram(entryAddress))
-            throw new AssemblerException("Некорректный адрес входа в программу: " + hex(entryAddress, 6));
+        appendSectionRecords(objectCode);
+        if (sectionIndex != sections.size())
+            throw new AssemblerException("Вспомогательная таблица не соответствует первому проходу: в ней "
+                    + sectionIndex + " секц., а первый проход нашёл " + sections.size());
 
-        List<String> objectCode = new ArrayList<>();
-        objectCode.add(headerRecord(intermediate.get(0)));
-        for (SymbolicName name : externalNames)
-            objectCode.add("D " + name.name() + " " + hex(name.address(), 6));
-        for (String reference : externalReferences)
-            objectCode.add("R " + reference);
-        for (RelocationEntry entry : relocationTable)
-            objectCode.add("M " + hex(entry.address(), 6)
-                    + (entry.externalReference() == null ? "" : " " + entry.externalReference()));
-        objectCode.addAll(textRecords);
-        objectCode.add("E " + hex(entryAddress, 6));
         return objectCode;
     }
 
@@ -215,6 +245,45 @@ public class Assembler {
         relocationTable.clear();
         externalNames.clear();
         externalReferences.clear();
+        externalReferenceSections.clear();
+    }
+
+    private static boolean isSectionStart(List<String> words) {
+        return words.size() >= 2 && words.get(1).equalsIgnoreCase("CSECT");
+    }
+
+    private void beginSecondPassSection(int index, List<String> words) {
+        if (index >= sections.size())
+            throw error("Вспомогательная таблица не соответствует первому проходу: лишняя секция",
+                    String.join(" ", words));
+
+        secondPassSection = sections.get(index);
+        currentSection = secondPassSection.name();
+        sectionNamesFrom = externalNames.size();
+        sectionReferencesFrom = externalReferences.size();
+        sectionRelocationsFrom = relocationTable.size();
+        sectionTextRecords = new ArrayList<>();
+    }
+
+    private void appendSectionRecords(List<String> objectCode) {
+        Section section = secondPassSection;
+        if (section.entryAddress() < START_ADDRESS || section.entryAddress() >= section.length())
+            throw new AssemblerException("Некорректный адрес входа в программу: " + hex(section.entryAddress(), 6));
+
+        objectCode.add("H " + section.name() + " " + hex(START_ADDRESS, 6) + " " + hex(section.length(), 6));
+        for (SymbolicName name : externalNames.subList(sectionNamesFrom, externalNames.size()))
+            objectCode.add("D " + name.name() + " " + hex(name.address(), 6));
+        for (String reference : sectionReferences())
+            objectCode.add("R " + reference);
+        for (RelocationEntry entry : relocationTable.subList(sectionRelocationsFrom, relocationTable.size()))
+            objectCode.add("M " + hex(entry.address(), 6)
+                    + (entry.externalReference() == null ? "" : " " + entry.externalReference()));
+        objectCode.addAll(sectionTextRecords);
+        objectCode.add("E " + hex(section.entryAddress(), 6));
+    }
+
+    private List<String> sectionReferences() {
+        return externalReferences.subList(sectionReferencesFrom, externalReferences.size());
     }
 
     private void addExternalNames(List<String> words) {
@@ -233,6 +302,7 @@ public class Assembler {
             if (findSymbol(name) != null)
                 throw error("Внешняя ссылка " + name + " совпадает с меткой из ТСИ", text);
             externalReferences.add(name);
+            externalReferenceSections.add(currentSection);
         }
     }
 
@@ -252,23 +322,54 @@ public class Assembler {
             throw error("Программа в перемещаемом формате ассемблируется с адреса 0:"
                     + " операнд START должен отсутствовать или быть равен 0", text);
 
-        return line.label() + " START " + hex(START_ADDRESS, 6);
+        return startSection(line, text);
     }
 
-    private void processEnd(CodeLine line, String text) {
-        if (line.label() != null)
-            throw error("Перед директивой END не должно быть метки: она указывала бы за пределы программы", text);
-        if (locationCounter == START_ADDRESS)
-            throw error("Программа не содержит ни одной команды или данных", text);
+    // START и CSECT начинают управляющую секцию: свои адреса от нуля, свои метки, EXTDEF и EXTREF
+    private String startSection(CodeLine line, String text) {
+        String name = line.label();
+        if (name == null)
+            throw error("Перед директивой CSECT должна быть метка (имя секции)", text);
+        if (sections.stream().anyMatch(s -> s.name().equals(name)))
+            throw error("Имя секции " + name + " уже используется", text);
 
-        entryAddress = resolveEntryAddress(line.firstOperand(), text);
+        currentSection = name;
+        locationCounter = START_ADDRESS;
+        entryAddress = START_ADDRESS;
+        declaredExternalNames.clear();
+        declaredExternalReferences.clear();
+        bodyStarted = false;
+
+        return name + " " + line.command() + " " + hex(START_ADDRESS, 6);
+    }
+
+    // CSECT и END завершают текущую секцию; их операнд задаёт точку входа завершаемой секции
+    private void finishSection(CodeLine line, String text) {
+        boolean singleSection = sections.isEmpty() && line.command().equals("END");
+        String scope = singleSection ? "Программа" : "Секция " + currentSection;
+
+        if (line.secondOperand() != null)
+            throw error("Ожидается максимум один операнд (точка входа), но найдено два", text);
+        if (locationCounter == START_ADDRESS)
+            throw error(scope + " не содержит ни одной команды или данных", text);
+
+        entryAddress = resolveEntryAddress(line.command(), line.firstOperand(), text);
 
         if (!isInsideProgram(entryAddress))
-            throw error("Адрес входа в программу должен лежать в её пределах ("
+            throw error("Адрес входа в " + (singleSection ? "программу" : "секцию " + currentSection)
+                    + " должен лежать в её пределах ("
                     + hex(START_ADDRESS, 6) + "-" + hex(locationCounter - 1, 6) + ")", text);
+
+        for (String name : declaredExternalNames)
+            if (findSymbol(name) == null)
+                throw new AssemblerException("Внешнее имя " + name + ", объявленное в EXTDEF, не определено в программе"
+                        + (singleSection ? "" : " (секция " + currentSection + ")")
+                        + ": ни одна команда или директива данных не помечена этой меткой");
+
+        sections.add(new Section(currentSection, locationCounter, entryAddress));
     }
 
-    private int resolveEntryAddress(String operand, String text) {
+    private int resolveEntryAddress(String directive, String operand, String text) {
         if (operand == null)
             return START_ADDRESS;
 
@@ -286,7 +387,7 @@ public class Assembler {
 
         if (isLabel(operand))
             throw error("Метка точки входа не найдена в ТСИ", text);
-        throw error("Невозможно преобразовать операнд END в метку или 16-ричный адрес входа в программу", text);
+        throw error("Невозможно преобразовать операнд " + directive + " в метку или 16-ричный адрес входа в программу", text);
     }
 
     private boolean isInsideProgram(int address) {
@@ -321,7 +422,14 @@ public class Assembler {
         if (containsIgnoreCase(declaredExternalReferences, name))
             throw error("Имя " + name + " уже объявлено в EXTREF", text);
 
-        (directive.equals("EXTDEF") ? declaredExternalNames : declaredExternalReferences).add(name);
+        if (directive.equals("EXTDEF")) {
+            if (containsIgnoreCase(exportedNames, name))
+                throw error("Внешнее имя " + name + " уже экспортируется другой секцией", text);
+            exportedNames.add(name);
+            declaredExternalNames.add(name);
+        } else {
+            declaredExternalReferences.add(name);
+        }
     }
 
     private String processWord(CodeLine line, String text) {
@@ -459,10 +567,6 @@ public class Assembler {
         return line;
     }
 
-    private String headerRecord(List<String> startLine) {
-        return "H " + startLine.get(0) + " " + hex(START_ADDRESS, 6) + " " + hex(locationCounter - START_ADDRESS, 6);
-    }
-
     private String textRecord(List<String> words) {
         String text = String.join(" ", words);
         if (words.size() < 2 || words.size() > 4)
@@ -546,13 +650,13 @@ public class Assembler {
     }
 
     private String encodeDirectOperand(int commandAddress, List<String> operands, String text) {
-        if (operands.size() == 1 && containsIgnoreCase(externalReferences, operands.get(0))) {
-            relocationTable.add(new RelocationEntry(commandAddress, operands.get(0).toUpperCase()));
+        if (operands.size() == 1 && containsIgnoreCase(sectionReferences(), operands.get(0))) {
+            relocationTable.add(new RelocationEntry(commandAddress, operands.get(0).toUpperCase(), currentSection));
             return hex(0, 6);
         }
 
         int target = resolveLabelOperand(operands, text);
-        relocationTable.add(new RelocationEntry(commandAddress, null));
+        relocationTable.add(new RelocationEntry(commandAddress, null, currentSection));
         return hex(target, 6);
     }
 
@@ -561,7 +665,7 @@ public class Assembler {
             throw error("Ожидается операнд относительной адресации [метка]", text);
 
         String label = Operands.relativeTarget(operands.get(0));
-        if (containsIgnoreCase(externalReferences, label))
+        if (containsIgnoreCase(sectionReferences(), label))
             throw error(relativeExternalReferenceMessage(label), text);
 
         int target = resolveLabelOperand(List.of(label), text);
@@ -591,11 +695,12 @@ public class Assembler {
 
         switch (words.size()) {
             case 1 -> {
-                if (isCommand(first) || first.equalsIgnoreCase("END"))
+                if (isCommand(first) || first.equalsIgnoreCase("END") || first.equalsIgnoreCase("CSECT"))
                     return new CodeLine(null, first.toUpperCase(), null, null);
             }
             case 2 -> {
-                if (isLabel(first) && (isCommand(second) || second.equalsIgnoreCase("START") || second.equalsIgnoreCase("END")))
+                if (isLabel(first) && (isCommand(second) || second.equalsIgnoreCase("START")
+                        || second.equalsIgnoreCase("END") || second.equalsIgnoreCase("CSECT")))
                     return new CodeLine(first.toUpperCase(), second.toUpperCase(), null, null);
                 if (isCommand(first) || isDirective(first))
                     return new CodeLine(null, first.toUpperCase(), second, null);
@@ -705,11 +810,15 @@ public class Assembler {
             throw error("Метка " + label + " объявлена в EXTREF как внешняя ссылка: она определяется в другой"
                     + " программе и не может быть меткой этой", text);
 
-        symbolTable.add(new SymbolicName(label, locationCounter, containsIgnoreCase(declaredExternalNames, label)));
+        symbolTable.add(new SymbolicName(label, locationCounter, containsIgnoreCase(declaredExternalNames, label),
+                currentSection));
     }
 
+    // Метки видны только внутри своей секции; в другую секцию они попадают лишь через EXTDEF/EXTREF
     private SymbolicName findSymbol(String name) {
-        return symbolTable.stream().filter(s -> s.name().equalsIgnoreCase(name)).findFirst().orElse(null);
+        return symbolTable.stream()
+                .filter(s -> s.section().equals(currentSection) && s.name().equalsIgnoreCase(name))
+                .findFirst().orElse(null);
     }
 
     private Command findCommand(String name) {

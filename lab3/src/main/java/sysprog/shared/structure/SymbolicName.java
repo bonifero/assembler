@@ -1,4 +1,4 @@
 package sysprog.shared.structure;
 
-public record SymbolicName(String name, int address, boolean external) {
+public record SymbolicName(String name, int address, boolean external, String section) {
 }

@@ -213,6 +213,74 @@ public final class Samples {
                 END
             """;
 
+    // Две управляющие секции: операнд CSECT задаёт точку входа предыдущей секции (MAIN), END — последней (LIB)
+    public static final String CONTROL_SECTION_SAMPLE = """
+            MAIN  START   0
+                EXTREF  PRINT
+            ENTRY CALL    PRINT
+                RET
+            LIB   CSECT   ENTRY
+                EXTDEF  PRINT
+            PRINT INT     1
+                RET
+                END     PRINT
+            """;
+
+    public static final String SECTIONS_SAMPLE = """
+            PROG  START   0
+                EXTDEF  D23
+                EXTDEF  D4
+                EXTREF  D2
+                EXTREF  D546
+            D4    RESB    10
+            D23   RESB    10
+                JMP     [D4]
+                SAVER1  D546
+                RESB    10
+            A2    CSECT
+                EXTDEF  D42
+                EXTREF  D4
+            D42   SAVER1  D4
+                INT     200
+                END
+            """;
+
+    public static final String SAME_LABEL_IN_SECTIONS_SAMPLE = """
+            PROG  START
+            DATA  WORD    1
+                JMP     DATA
+            OTHER CSECT
+            DATA  WORD    2
+                JMP     [DATA]
+                END
+            """;
+
+    public static final String DUPLICATE_EXPORT_SAMPLE = """
+            PROG  START
+                EXTDEF  DATA
+            DATA  WORD    1
+            OTHER CSECT
+                EXTDEF  DATA
+            DATA  WORD    2
+                END
+            """;
+
+    public static final String DUPLICATE_SECTION_SAMPLE = """
+            PROG  START
+            DATA  WORD    1
+            PROG  CSECT
+                RET
+                END
+            """;
+
+    public static final String CROSS_SECTION_SAMPLE = """
+            PROG  START
+            DATA  WORD    1
+            OTHER CSECT
+                JMP     DATA
+                END
+            """;
+
     public static final Map<String, String> ALL = new LinkedHashMap<>();
 
     static {
@@ -224,6 +292,9 @@ public final class Samples {
         ALL.put("Смешанная адресация, без внешних имён (без ошибок)", MIXED_SAMPLE);
         ALL.put("Все директивы (без ошибок)", ALL_DIRECTIVES_SAMPLE);
         ALL.put("Все команды ТКО (без ошибок)", ALL_COMMANDS_SAMPLE);
+        ALL.put("Управляющие секции CSECT: MAIN и LIB (без ошибок)", CONTROL_SECTION_SAMPLE);
+        ALL.put("Управляющие секции CSECT: PROG и A2 (без ошибок)", SECTIONS_SAMPLE);
+        ALL.put("Одинаковые локальные метки в разных секциях (без ошибок)", SAME_LABEL_IN_SECTIONS_SAMPLE);
         ALL.put("Ошибка: START не с адреса 0", NONZERO_START_SAMPLE);
         ALL.put("Ошибка: повторная метка", DUPLICATE_LABEL_SAMPLE);
         ALL.put("Ошибка: неизвестная команда", UNKNOWN_COMMAND_SAMPLE);
@@ -233,6 +304,9 @@ public final class Samples {
         ALL.put("Ошибка: внешнее имя из EXTDEF не определено", UNDEFINED_EXTERNAL_NAME_SAMPLE);
         ALL.put("Ошибка: внешняя ссылка в [ ]", RELATIVE_EXTERNAL_REFERENCE_SAMPLE);
         ALL.put("Ошибка: метка совпадает с внешней ссылкой", EXTERNAL_REFERENCE_LABEL_SAMPLE);
+        ALL.put("Ошибка: одно внешнее имя экспортируют две секции", DUPLICATE_EXPORT_SAMPLE);
+        ALL.put("Ошибка: повторное имя секции", DUPLICATE_SECTION_SAMPLE);
+        ALL.put("Ошибка 2-го прохода: метка другой секции без EXTREF", CROSS_SECTION_SAMPLE);
         ALL.put("Ошибка 2-го прохода: метка не определена", UNDEFINED_LABEL_SAMPLE);
         ALL.put("Ошибка 2-го прохода: метка в [ ] не определена", UNDEFINED_RELATIVE_LABEL_SAMPLE);
     }
