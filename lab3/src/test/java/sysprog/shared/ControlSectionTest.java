@@ -64,9 +64,9 @@ class ControlSectionTest {
             assertEquals(List.of(
                     "H MAIN 000000 000005",
                     "R PRINT",
-                    "M 000000 PRINT",
                     "T 000000 04 25000000",
                     "T 000004 01 28",
+                    "M 000000 PRINT",
                     "E 000000",
                     "H LIB 000000 000003",
                     "D PRINT 000000",

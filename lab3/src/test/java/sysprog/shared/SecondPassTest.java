@@ -42,10 +42,6 @@ class SecondPassTest {
         void directSample() {
             assertEquals(List.of(
                     "H PROG 000000 00001E",
-                    "M 000000",
-                    "M 00000E",
-                    "M 000012",
-                    "M 000018",
                     "T 000000 04 0500000E",
                     "T 000004 03 000028",
                     "T 000007 06 48656C6C6F21",
@@ -55,6 +51,10 @@ class SecondPassTest {
                     "T 000016 02 1001",
                     "T 000018 04 15000004",
                     "T 00001C 02 18C8",
+                    "M 000000",
+                    "M 00000E",
+                    "M 000012",
+                    "M 000018",
                     "E 000000"
             ), bothPasses(Samples.DIRECT_SAMPLE).objectCode);
         }
@@ -87,7 +87,7 @@ class SecondPassTest {
         @Test
         @DisplayName("Ссылка вперёд подставляет адрес из ТСИ")
         void forwardReference() {
-            assertEquals("T 000000 04 05000004", record(program("P START", " JMP NEXT", "NEXT RET", " END"), 2));
+            assertEquals("T 000000 04 05000004", record(program("P START", " JMP NEXT", "NEXT RET", " END"), 1));
         }
 
         @Test
@@ -212,8 +212,6 @@ class SecondPassTest {
             assertEquals(List.of("00000E", "000018"), run.relocationTable());
             assertEquals(List.of(
                     "H PROG 000000 000022",
-                    "M 00000E",
-                    "M 000018",
                     "T 000000 04 0600000A",
                     "T 000004 03 000028",
                     "T 000007 06 48656C6C6F21",
@@ -224,6 +222,8 @@ class SecondPassTest {
                     "T 000018 04 15000004",
                     "T 00001C 02 18C8",
                     "T 00001E 04 06FFFFEC",
+                    "M 00000E",
+                    "M 000018",
                     "E 000000"
             ), run.objectCode);
         }
@@ -233,8 +233,6 @@ class SecondPassTest {
         void allCommandsSample() {
             assertEquals(List.of(
                     "H MAIN 000000 000020",
-                    "M 000006",
-                    "M 00000A",
                     "T 000000 04 26000002",
                     "T 000004 02 1821",
                     "T 000006 04 09000017",
@@ -246,6 +244,8 @@ class SecondPassTest {
                     "T 000017 03 000007",
                     "T 00001A 03 000003",
                     "T 00001D 03",
+                    "M 000006",
+                    "M 00000A",
                     "E 000000"
             ), bothPasses(Samples.ALL_COMMANDS_SAMPLE).objectCode);
         }

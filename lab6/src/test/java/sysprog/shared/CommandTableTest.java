@@ -77,8 +77,8 @@ class CommandTableTest {
         assembler.reset(Parser.parseCode("P START 0\nL GO L\n STOP\n END"));
         List<String> code = assembler.run();
 
-        assertEquals("T 000000 04 FD000000", code.get(2));
-        assertEquals("T 000004 01 00", code.get(3));
+        assertEquals("T 000000 04 FD000000", code.get(1));
+        assertEquals("T 000004 01 00", code.get(2));
     }
 
     @ParameterizedTest(name = "код {0} не помещается в 6 бит")

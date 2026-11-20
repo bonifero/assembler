@@ -20,10 +20,11 @@ class OnePassAssemblerTest {
 
     @Test void directSampleMatchesLab3Format() {
         Assembler a = prepare(Samples.DIRECT_SAMPLE);
-        assertEquals(List.of("H PROG 000000 00001E", "M 000000", "M 00000E", "M 000012", "M 000018", "T 000000 04 0500000E",
+        assertEquals(List.of("H PROG 000000 00001E", "T 000000 04 0500000E",
                 "T 000004 03 000028", "T 000007 06 48656C6C6F21", "T 00000D 01 0C",
                 "T 00000E 04 09000004", "T 000012 04 0D00000D", "T 000016 02 1001",
-                "T 000018 04 15000004", "T 00001C 02 18C8", "E 000000"), a.run());
+                "T 000018 04 15000004", "T 00001C 02 18C8",
+                "M 000000", "M 00000E", "M 000012", "M 000018", "E 000000"), a.run());
         assertEquals(List.of(0, 14, 18, 24), a.getRelocationTable().stream().map(e -> e.address()).toList());
     }
 

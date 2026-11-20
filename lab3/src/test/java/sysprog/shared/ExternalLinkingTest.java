@@ -84,10 +84,6 @@ class ExternalLinkingTest {
                     "D BUF 00001B",
                     "D STR1 000012",
                     "R STR2",
-                    "M 000000",
-                    "M 000004 STR2",
-                    "M 00000A",
-                    "M 00000E",
                     "T 000000 04 09000015",
                     "T 000004 04 0D000000",
                     "T 000008 02 1001",
@@ -97,6 +93,10 @@ class ExternalLinkingTest {
                     "T 000015 03 000001",
                     "T 000018 03",
                     "T 00001B 06 48656C6C6F21",
+                    "M 000000",
+                    "M 000004 STR2",
+                    "M 00000A",
+                    "M 00000E",
                     "E 000000"
             ), bothPasses(Samples.DEFAULT_SAMPLE).objectCode);
         }

@@ -275,10 +275,10 @@ public class Assembler {
             objectCode.add("D " + name.name() + " " + hex(name.address(), 6));
         for (String reference : sectionReferences())
             objectCode.add("R " + reference);
+        objectCode.addAll(sectionTextRecords);
         for (RelocationEntry entry : relocationTable.subList(sectionRelocationsFrom, relocationTable.size()))
             objectCode.add("M " + hex(entry.address(), 6)
                     + (entry.externalReference() == null ? "" : " " + entry.externalReference()));
-        objectCode.addAll(sectionTextRecords);
         objectCode.add("E " + hex(section.entryAddress(), 6));
     }
 

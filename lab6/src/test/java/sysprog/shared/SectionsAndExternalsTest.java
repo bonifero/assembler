@@ -24,8 +24,8 @@ class SectionsAndExternalsTest {
 
     @Test void separateModulesMatchLab3() {
         Assembler a = prepare(Samples.CONTROL_SECTION_SAMPLE);
-        assertEquals(List.of("H MAIN 000000 000005", "R PRINT", "M 000000 PRINT",
-                "T 000000 04 25000000", "T 000004 01 28", "E 000000",
+        assertEquals(List.of("H MAIN 000000 000005", "R PRINT",
+                "T 000000 04 25000000", "T 000004 01 28", "M 000000 PRINT", "E 000000",
                 "H LIB 000000 000003", "D PRINT 000000", "T 000000 02 1801",
                 "T 000002 01 28", "E 000000"), a.run());
         assertEquals(List.of(new Section("MAIN", 5, 0), new Section("LIB", 3, 0)), a.getSections());

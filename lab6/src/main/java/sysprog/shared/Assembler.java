@@ -135,10 +135,14 @@ public class Assembler {
         }
         for (String name : declaredExternalReferences)
             records.add("R " + name);
+        boolean hasEndRecord = objectCode.get(objectCode.size() - 1).startsWith("E ");
+        int textEnd = hasEndRecord ? objectCode.size() - 1 : objectCode.size();
+        records.addAll(objectCode.subList(1, textEnd));
         for (RelocationEntry entry : relocationTable.subList(sectionRelocationsFrom, relocationTable.size()))
             records.add("M " + hex(entry.address(), 6)
                     + (entry.externalReference() == null ? "" : " " + entry.externalReference()));
-        records.addAll(objectCode.subList(1, objectCode.size()));
+        if (hasEndRecord)
+            records.add(objectCode.get(objectCode.size() - 1));
         return records;
     }
 
