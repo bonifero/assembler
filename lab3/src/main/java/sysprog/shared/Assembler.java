@@ -59,8 +59,6 @@ public class Assembler {
     // EXTDEF и EXTREF текущей управляющей секции
     private final List<String> declaredExternalNames = new ArrayList<>();
     private final List<String> declaredExternalReferences = new ArrayList<>();
-    // EXTDEF всех секций: одно внешнее имя может экспортировать только одна секция
-    private final List<String> exportedNames = new ArrayList<>();
     private final List<Section> sections = new ArrayList<>();
     private final List<SymbolicName> externalNames = new ArrayList<>();
     private final List<String> externalReferences = new ArrayList<>();
@@ -138,7 +136,6 @@ public class Assembler {
         symbolTable.clear();
         declaredExternalNames.clear();
         declaredExternalReferences.clear();
-        exportedNames.clear();
         sections.clear();
         clearSecondPassTables();
         currentSection = "";
@@ -423,9 +420,6 @@ public class Assembler {
             throw error("Имя " + name + " уже объявлено в EXTREF", text);
 
         if (directive.equals("EXTDEF")) {
-            if (containsIgnoreCase(exportedNames, name))
-                throw error("Внешнее имя " + name + " уже экспортируется другой секцией", text);
-            exportedNames.add(name);
             declaredExternalNames.add(name);
         } else {
             declaredExternalReferences.add(name);

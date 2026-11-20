@@ -138,7 +138,7 @@ class SectionsAndExternalsTest {
         "P START\n RET\n CSECT\n RET\n END",
         "P START\n RET\nP CSECT\n RET\n END",
         "P START\n RET\nQ CSECT\n END",
-        "P START\n EXTDEF X\nX RET\nQ CSECT\n EXTDEF X\nX RET\n END",
+        "P START\n EXTDEF X\n EXTDEF x\nX RET\n END",
         "P START\nX RET\nQ CSECT\n JMP X\n END",
         "P START\n RET\nQ CSECT 1\n RET\n END"
     })
@@ -177,4 +177,19 @@ class SectionsAndExternalsTest {
         assertEquals(code, Files.readAllLines(path));
         assertThrows(AssemblerException.class, () -> ObjectModuleFile.save(path, List.of()));
     }
+
+    @Test
+    void sameExportNameHasIndependentAddressesInDifferentSections() {
+        String source = "P START\n EXTDEF X\n JMP X\nX RET\nQ CSECT\n EXTDEF x\n JMP X\n RET\nx RET\n END";
+        Assembler a = prepare(source);
+        List<String> code = a.run();
+        assertEquals(List.of("P:X:4", "Q:X:5"), a.getExternalNames().stream()
+                .map(s -> s.section() + ":" + s.name() + ":" + s.address()).toList());
+        assertEquals(List.of(
+                "H P 000000 000005", "D X 000004", "T 000000 04 05000004",
+                "T 000004 01 28", "M 000000", "E 000000",
+                "H Q 000000 000006", "D X 000005", "T 000000 04 05000005",
+                "T 000004 01 28", "T 000005 01 28", "M 000000", "E 000000"), code);
+    }
+
 }

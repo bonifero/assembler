@@ -68,7 +68,6 @@ public class Assembler {
     private final List<String> completedCode = new ArrayList<>();
     private final List<String> declaredExternalNames = new ArrayList<>();
     private final List<String> declaredExternalReferences = new ArrayList<>();
-    private final Set<String> exportedNames = new HashSet<>();
     private final List<String> externalReferences = new ArrayList<>();
     private final List<String> externalReferenceSections = new ArrayList<>();
     private int sectionRelocationsFrom;
@@ -200,7 +199,6 @@ public class Assembler {
         completedCode.clear();
         declaredExternalNames.clear();
         declaredExternalReferences.clear();
-        exportedNames.clear();
         externalReferences.clear();
         externalReferenceSections.clear();
         sectionRelocationsFrom = 0;
@@ -368,13 +366,10 @@ public class Assembler {
                 throw error("Имя " + name + " уже объявлено в EXTREF", text);
             if (!seen.add(name))
                 throw error("Имя " + name + " уже объявлено в " + line.command(), text);
-            if (line.command().equals("EXTDEF") && exportedNames.contains(name))
-                throw error("Внешнее имя " + name + " уже экспортируется другой секцией", text);
         }
         for (String name : names) {
             if (line.command().equals("EXTDEF")) {
                 declaredExternalNames.add(name);
-                exportedNames.add(name);
                 Symbol symbol = new Symbol(name, currentSection);
                 symbol.external = true;
                 symbolTable.put(symbolKey(name), symbol);

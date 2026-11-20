@@ -131,9 +131,10 @@ class ControlSectionTest {
         }
 
         @Test
-        @DisplayName("Одно внешнее имя экспортирует только одна секция")
+        @DisplayName("Внешнее имя нельзя объявлять повторно внутри секции")
         void duplicateExport() {
-            assertFirstPassError(Samples.DUPLICATE_EXPORT_SAMPLE, "уже экспортируется другой секцией");
+            assertFirstPassError(program("P START", " EXTDEF X", " EXTDEF x", "X RET", " END"),
+                    "уже объявлено в EXTDEF");
         }
 
         @Test
@@ -156,4 +157,20 @@ class ControlSectionTest {
             assertSecondPassError(Samples.CROSS_SECTION_SAMPLE, "Метка не найдена в ТСИ");
         }
     }
+
+    @Test
+    void sameExportNameHasIndependentAddressesInDifferentSections() {
+        String source = "P START\n EXTDEF X\n JMP X\nX RET\nQ CSECT\n EXTDEF x\n JMP X\n RET\nx RET\n END";
+        AssemblerRun run = bothPasses(source);
+        Assembler a = run.assembler;
+        List<String> code = run.objectCode;
+        assertEquals(List.of("P:X:4", "Q:X:5"), a.getExternalNames().stream()
+                .map(s -> s.section() + ":" + s.name() + ":" + s.address()).toList());
+        assertEquals(List.of(
+                "H P 000000 000005", "D X 000004", "T 000000 04 05000004",
+                "T 000004 01 28", "M 000000", "E 000000",
+                "H Q 000000 000006", "D X 000005", "T 000000 04 05000005",
+                "T 000004 01 28", "T 000005 01 28", "M 000000", "E 000000"), code);
+    }
+
 }

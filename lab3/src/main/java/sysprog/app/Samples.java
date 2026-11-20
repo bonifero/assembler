@@ -304,7 +304,7 @@ public final class Samples {
         ALL.put("Ошибка: внешнее имя из EXTDEF не определено", UNDEFINED_EXTERNAL_NAME_SAMPLE);
         ALL.put("Ошибка: внешняя ссылка в [ ]", RELATIVE_EXTERNAL_REFERENCE_SAMPLE);
         ALL.put("Ошибка: метка совпадает с внешней ссылкой", EXTERNAL_REFERENCE_LABEL_SAMPLE);
-        ALL.put("Ошибка: одно внешнее имя экспортируют две секции", DUPLICATE_EXPORT_SAMPLE);
+        ALL.put("Одно внешнее имя в двух секциях (без ошибок)", DUPLICATE_EXPORT_SAMPLE);
         ALL.put("Ошибка: повторное имя секции", DUPLICATE_SECTION_SAMPLE);
         ALL.put("Ошибка 2-го прохода: метка другой секции без EXTREF", CROSS_SECTION_SAMPLE);
         ALL.put("Ошибка 2-го прохода: метка не определена", UNDEFINED_LABEL_SAMPLE);
